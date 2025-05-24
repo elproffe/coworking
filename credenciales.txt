@@ -1,0 +1,397 @@
+Arrancar Servidor
+node src/app.js
+
+Crear Administrador
+node src/scripts/createAdmin.js
+
+node src/seed.js
+admin@coworking.com
+Arrancar Frontend
+npm run dev
+
+
+
+                <Route element={<ProtectedRoute />}>
+                  <Route path="/disponibilidad" element={<AvailabilityPage />} />
+                  <Route path="/reservas" element={<MyBookings />} />
+                  <Route path="/perfil" element={<Profile />} />
+                  <Route path="/dashboard" element={<Dashboard />} />
+                </Route>
+
+                <Route element={<ProtectedRoute />}>
+                  <Route path="/dashboard" element={<Dashboard />}>
+                    <Route index element={<AvailabilityPage />} />
+                    <Route path="disponibilidad" element={<AvailabilityPage />} />
+                    <Route path="reservas" element={<MyBookings />} />
+                    <Route path="perfil" element={<Profile />} />
+                    
+                    {/* Rutas admin */}
+                    <Route element={<AdminRoute />}>
+                      <Route path="admin/espacios" element={<AdminSpace />} />
+                      <Route path="admin/estadisticas" element={<AdminStats />} />
+                    </Route>
+                  </Route>
+                </Route>
+
+
+app.get('/admin/stats', adminAuth, async (req, res) => {
+  console.log('Autenticado correctamente');
+  try {
+    // Ocupación de hoy
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const todayReservations = await Reservation.count({
+      where: {
+        start_time: {
+          [Op.between]: [todayStart.toISOString(), todayEnd.toISOString()],
+        },
+      },
+    });
+
+    // Total de reservas
+    const totalReservations = await Reservation.count();
+
+    // Ingresos del mes
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const monthlyRevenueResult = await Reservation.findAll({
+      where: {
+        start_time: { [Op.gte]: monthStart.toISOString() },
+      },
+      attributes: ['total_cost'],
+    });
+
+    const monthlyRevenue = monthlyRevenueResult.reduce(
+      (acc, r) => acc + parseFloat(r.total_cost || 0),
+      0
+    );
+
+    // Ocupación semanal (últimos 5 días hábiles)
+    const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const weeklyOccupancy = [];
+
+    for (let i = 0; i < 5; i++) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const start = new Date(date.setHours(0, 0, 0, 0));
+      const end = new Date(date.setHours(23, 59, 59, 999));
+
+      const count = await Reservation.count({
+        where: {
+          start_time: {
+            [Op.between]: [start.toISOString(), end.toISOString()],
+          },
+        },
+      });
+
+      weeklyOccupancy.unshift({
+        day: days[start.getDay()],
+        value: count,
+      });
+    }
+
+    res.json({
+      todayOccupancy: todayReservations,
+      totalBookings: totalReservations,
+      monthlyRevenue,
+      weeklyOccupancy,
+    });
+  } catch (error) {
+    console.error('Error al obtener estadísticas:', error);
+    res.status(500).json({ error: 'Error al obtener estadísticas' });
+  }
+});
+
+
+
+
+import { Box, VStack, Button, Text } from '@chakra-ui/react';
+import { Link } from 'react-router-dom';
+import { useAuth } from '../context/useAuth';
+
+/**
+ * Sidebar - Menú lateral de navegación.
+ * Muestra enlaces a las secciones principales del dashboard.
+ */
+export default function Sidebar() {
+  const { user, logout } = useAuth();
+
+  return (
+    <Box w="250px" bg="gray.800" color="white" p="4">
+      <VStack align="stretch" spacing="4">
+        <Text fontWeight="bold">{user?.email}</Text>
+
+        {/* Enlaces principales */}
+        <Button as={Link} to="/dashboard" variant="ghost" justifyContent="flex-start">
+          Disponibilidad
+        </Button>
+        <Button as={Link} to="/dashboard/my-bookings" variant="ghost" justifyContent="flex-start">
+          Mis Reservas
+        </Button>
+        <Button as={Link} to="/dashboard/profile" variant="ghost" justifyContent="flex-start">
+          Perfil
+        </Button>
+
+        {/* Enlaces solo para admin */}
+        {user?.isAdmin && (
+          <>
+            <Button as={Link} to="/dashboard/admin/spaces" variant="ghost" justifyContent="flex-start">
+              Gestión Espacios
+            </Button>
+            <Button as={Link} to="/dashboard/admin/stats" variant="ghost" justifyContent="flex-start">
+              Estadísticas
+            </Button>
+          </>
+        )}
+
+        {/* Botón de cierre de sesión */}
+        <Button mt="8" colorScheme="red" onClick={logout}>
+          Cerrar sesión
+        </Button>
+      </VStack>
+    </Box>
+  );
+}
+
+
+
+APP
+
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { ChakraProvider, Box } from '@chakra-ui/react';
+import AuthProvider from './context/AuthProvider';
+import Home from './pages/Home';
+import Login from './pages/Login';
+import Navbar from './components/Navbar';
+import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute';
+import Profile from './pages/Profile';
+import Dashboard from './pages/Dashboard';
+import AdminSpace from './components/admin/AdminSpace';
+import AdminStats from './components/admin/AdminStats';
+import AvailabilityPanel from './components/Availability/AvailabilityPanel';
+import AvailabilityPage from './pages/AvailabilityPage';
+import MyBookings from './components/MyBookings';
+import theme from './theme';
+import NotFound from './pages/NotFound';
+
+function App() {
+  return (
+    <ChakraProvider theme={theme}>
+      <BrowserRouter>
+        <AuthProvider>
+          <Box minH="100vh" display="flex" flexDirection="column">
+            <Navbar />
+            <Box as="main" flex={1} py={4} px={{ base: 4, md: 8 }}>
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/disponibilidad" element={<AvailabilityPage />} />
+                <Route path="/reservas" element={<MyBookings />} />
+                <Route path="/perfil" element={<Profile />} />
+                <Route path="/dashboard" element={<Dashboard />} />
+
+                <Route element={<ProtectedRoute />}>
+                  <Route element={<AdminRoute />}>
+                    <Route path="/admin/espacios" element={<AdminSpace />} />
+                    <Route path="/admin/estadisticas" element={<AdminStats />} />
+                  </Route>
+                </Route>
+
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Box>
+          </Box>
+        </AuthProvider>
+      </BrowserRouter>
+    </ChakraProvider>
+  );
+}
+
+export default App;
+
+Dashh
+import { Tabs, TabList, Tab, TabPanels, TabPanel, Flex } from '@chakra-ui/react';
+import Sidebar from '../components/Sidebar';
+import AvailabilityPage from '../pages/AvailabilityPage';
+import MyBookings from '../components/MyBookings';
+import Profile from "../pages/Profile";
+import AdminSpace from '../components/admin/AdminSpace';
+import AdminStats from '../components/admin/AdminStats';
+import { useAuth } from '../context/useAuth';
+import { useNavigate } from 'react-router-dom';
+
+export default function Dashboard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  // Función para manejar cambio de pestañas
+  const handleTabChange = (index) => {
+    switch(index) {
+      case 0: navigate('/disponibilidad'); break;
+      case 1: navigate('/reservas'); break;
+      case 2: navigate('/perfil'); break;
+      case 3: navigate('/admin/espacios'); break;
+      case 4: navigate('/admin/estadisticas'); break;
+      default: console.error('Índice de pestaña no válido:', index)
+    }
+  };
+
+  return (
+    <Flex minH="100vh">
+      <Sidebar />
+
+      <Flex flex="1" p="4" direction="column">
+        <Tabs variant="enclosed" onChange={handleTabChange}>
+          <TabList>
+            <Tab>Disponibilidad</Tab>
+            <Tab>Mis Reservas</Tab>
+            <Tab>Perfil</Tab>
+
+            {user?.isAdmin && (
+              <>
+                <Tab>Gestión Espacios</Tab>
+                <Tab>Estadísticas</Tab>
+              </>
+            )}
+          </TabList>
+
+          <TabPanels>
+            <TabPanel><AvailabilityPage /></TabPanel>
+            <TabPanel><MyBookings /></TabPanel>
+            <TabPanel><Profile /></TabPanel>
+
+            {user?.isAdmin && (
+              <>
+                <TabPanel><AdminSpace /></TabPanel>
+                <TabPanel><AdminStats /></TabPanel>
+              </>
+            )}
+          </TabPanels>
+        </Tabs>
+      </Flex>
+    </Flex>
+  );
+}
+
+import { Tabs, TabList, Tab, TabPanels, TabPanel, Flex } from '@chakra-ui/react';
+import Sidebar from '../components/Sidebar';
+import AvailabilityPage from '../pages/AvailabilityPage';
+import MyBookings from '../components/MyBookings';
+import Profile from "../pages/Profile";
+import AdminSpace from '../components/admin/AdminSpace';
+import AdminStats from '../components/admin/AdminStats';
+import { useAuth } from '../context/useAuth';
+import { useNavigate } from 'react-router-dom';
+
+export default function Dashboard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  // Función para manejar cambio de pestañas
+  const handleTabChange = (index) => {
+    switch(index) {
+      case 0: navigate('/disponibilidad'); break;
+      case 1: navigate('/reservas'); break;
+      case 2: navigate('/perfil'); break;
+      case 3: navigate('/admin/espacios'); break;
+      case 4: navigate('/admin/estadisticas'); break;
+      default: console.error('Índice de pestaña no válido:', index)
+    }
+  };
+
+  return (
+    <Flex minH="100vh">
+      <Sidebar />
+
+      <Flex flex="1" p="4" direction="column">
+        <Tabs variant="enclosed" onChange={handleTabChange}>
+          <TabList>
+            <Tab>Disponibilidad</Tab>
+            <Tab>Mis Reservas</Tab>
+            <Tab>Perfil</Tab>
+
+            {user?.isAdmin && (
+              <>
+                <Tab>Gestión Espacios</Tab>
+                <Tab>Estadísticas</Tab>
+              </>
+            )}
+          </TabList>
+
+          <TabPanels>
+            <TabPanel><AvailabilityPage /></TabPanel>
+            <TabPanel><MyBookings /></TabPanel>
+            <TabPanel><Profile /></TabPanel>
+
+            {user?.isAdmin && (
+              <>
+                <TabPanel><AdminSpace /></TabPanel>
+                <TabPanel><AdminStats /></TabPanel>
+              </>
+            )}
+          </TabPanels>
+        </Tabs>
+      </Flex>
+    </Flex>
+  );
+}
+
+    const totalReservations = await Reservation.count();
+
+    // Ingresos del mes
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const monthlyRevenueResult = await Reservation.findAll({
+      where: {
+        start_time: { [Op.gte]: monthStart.toISOString() },
+      },
+      attributes: ['total_cost'],
+    });
+
+    const monthlyRevenue = monthlyRevenueResult.reduce(
+      (acc, r) => acc + parseFloat(r.total_cost || 0),
+      0
+    );
+
+    // Ocupación semanal (últimos 5 días hábiles)
+    const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const weeklyOccupancy = [];
+
+    for (let i = 0; i < 5; i++) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const start = new Date(date.setHours(0, 0, 0, 0));
+      const end = new Date(date.setHours(23, 59, 59, 999));
+
+      const count = await Reservation.count({
+        where: {
+          start_time: {
+            [Op.between]: [start.toISOString(), end.toISOString()],
+          },
+        },
+      });
+
+      weeklyOccupancy.unshift({
+        day: days[start.getDay()],
+        value: count,
+      });
+    }
+
+    res.json({
+      todayOccupancy: todayReservations,
+      totalBookings: totalReservations,
+      monthlyRevenue,
+      weeklyOccupancy,
+    });
+  } catch (error) {
+    console.error('Error al obtener estadísticas:', error);
+    res.status(500).json({ error: 'Error al obtener estadísticas' });
+  }
+});
